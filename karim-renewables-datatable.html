@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Karim Renewables Energy Data Sheet</title>
+    <!-- Load the official Jotform Custom Widget API -->
+    <script src="//js.jotform.com/JotFormCustomWidget.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            padding: 10px;
+            color: #222;
+            background: #fff;
+            margin: 0;
+        }
+        h2 {
+            font-size: 16px;
+            color: #0c3b2e;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .table-responsive {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+            min-width: 650px;
+        }
+        th, td {
+            border: 1px solid #d1d5db;
+            padding: 8px;
+            text-align: center;
+            font-size: 13px;
+        }
+        th {
+            background-color: #0c3b2e;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        td.left-align {
+            text-align: left;
+        }
+        input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 6px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            text-align: center;
+        }
+        input.appliance-input {
+            text-align: left;
+        }
+        .calculated-cell {
+            background-color: #f9fafb;
+            font-weight: 500;
+            color: #374151;
+        }
+        button {
+            background-color: #0c3b2e;
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        button.delete-btn {
+            background-color: #dc2626;
+            padding: 5px 8px;
+            font-size: 12px;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        .actions-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .summary-box {
+            background-color: #f3f4f6;
+            border: 1px solid #d1d5db;
+            padding: 10px 15px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        .summary-box span {
+            color: #0c3b2e;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Karim Renewables Energy Data Sheet</h2>
+
+    <div class="table-responsive">
+        <table id="dataTable">
+            <thead>
+                <tr>
+                    <th style="width: 50px;">No.</th>
+                    <th>Appliances</th>
+                    <th style="width: 70px;">Quantity</th>
+                    <th style="width: 90px;">Unit Load (W)</th>
+                    <th style="width: 90px;">Total Load (W)</th>
+                    <th style="width: 90px;">Run Time (hrs)</th>
+                    <th style="width: 100px;">Energy (Wh)</th>
+                    <th style="width: 50px;">Action</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <!-- Rows will be dynamically populated -->
+            </tbody>
+        </table>
+    </div>
+
+    <div class="actions-bar">
+        <button type="button" id="addRowBtn">+ Add Appliance</button>
+    </div>
+
+    <div class="summary-box">
+        <div>Gross Total Load: <span id="grossTotalLoad">0.00</span> W</div>
+        <div>Energy Demand: <span id="energyDemand">0.00</span> Wh</div>
+    </div>
+
+    <script>
+        const tableBody = document.getElementById('tableBody');
+        const addRowBtn = document.getElementById('addRowBtn');
+        const grossTotalLoadSpan = document.getElementById('grossTotalLoad');
+        const energyDemandSpan = document.getElementById('energyDemand');
+
+        // Function to re-index row numbers automatically
+        function updateRowNumbers() {
+            const rows = tableBody.querySelectorAll('tr');
+            rows.forEach((row, index) => {
+                row.querySelector('.row-number').textContent = index + 1;
+            });
+        }
+
+        // Add a new row to the table
+        function addRow(data = { appliance: '', qty: 1, unitLoad: 0, runTime: 0 }) {
+            const row = document.createElement('tr');
+            
+            row.innerHTML = `
+                <td class="row-number"></td>
+                <td class="left-align"><input type="text" class="appliance-input" value="${data.appliance}" placeholder="Appliance name..."></td>
+                <td><input type="number" class="qty-input" value="${data.qty}" min="0" step="1"></td>
+                <td><input type="number" class="unit-load-input" value="${data.unitLoad}" min="0" step="0.1"></td>
+                <td class="calculated-cell total-load-cell">0.00</td>
+                <td><input type="number" class="runtime-input" value="${data.runTime}" min="0" step="0.1"></td>
+                <td class="calculated-cell energy-cell">0.00</td>
+                <td><button type="button" class="delete-btn">X</button></td>
+            `;
+
+            // Bind live calculation listeners to input fields
+            row.querySelectorAll('input').forEach(input => {
+                input.addEventListener('input', calculateRowAndTotals);
+            });
+
+            // Bind delete button listener
+            row.querySelector('.delete-btn').addEventListener('click', function() {
+                row.remove();
+                updateRowNumbers();
+                calculateRowAndTotals();
+            });
+
+            tableBody.appendChild(row);
+            updateRowNumbers();
+            calculateRowAndTotals();
+        }
+
+        // Perform calculations for each row and sum up the grand totals
+        function calculateRowAndTotals() {
+            const rows = tableBody.querySelectorAll('tr');
+            let grossTotalLoad = 0;
+            let totalEnergyDemand = 0;
+
+            rows.forEach(row => {
+                const qty = parseFloat(row.querySelector('.qty-input').value) || 0;
+                const unitLoad = parseFloat(row.querySelector('.unit-load-input').value) || 0;
+                const runTime = parseFloat(row.querySelector('.runtime-input').value) || 0;
+
+                // Formula 1: Total Load = Quantity * Unit Load
+                const totalLoad = qty * unitLoad;
+                
+                // Formula 2: Energy in Wh = Run time * Total Load per appliance
+                const energyWh = runTime * totalLoad;
+
+                // Update row cells
+                row.querySelector('.total-load-cell').textContent = totalLoad.toFixed(2);
+                row.querySelector('.energy-cell').textContent = energyWh.toFixed(2);
+
+                // Accumulate sums
+                grossTotalLoad += totalLoad;
+                totalEnergyDemand += energyWh;
+            });
+
+            // Update footer summaries
+            grossTotalLoadSpan.textContent = grossTotalLoad.toFixed(2);
+            energyDemandSpan.textContent = totalEnergyDemand.toFixed(2);
+
+            // Automatically resize iframe height inside Jotform
+            if (typeof JFCustomWidget !== 'undefined') {
+                JFCustomWidget.setWidgetHeight(document.body.scrollHeight + 30);
+            }
+        }
+
+        // Extract structured table data to send back to Jotform
+        function getTableData() {
+            const rows = tableBody.querySelectorAll('tr');
+            const dataArray = [];
+
+            rows.forEach((row, index) => {
+                dataArray.push({
+                    no: index + 1,
+                    appliance: row.querySelector('.appliance-input').value,
+                    quantity: row.querySelector('.qty-input').value,
+                    unitLoadInWatt: row.querySelector('.unit-load-input').value,
+                    totalLoadInWatt: row.querySelector('.total-load-cell').textContent,
+                    runTimeInHours: row.querySelector('.runtime-input').value,
+                    energyInWh: row.querySelector('.energy-cell').textContent
+                });
+            });
+
+            return {
+                appliances: dataArray,
+                grossTotalLoad: grossTotalLoadSpan.textContent,
+                energyDemand: energyDemandSpan.textContent
+            };
+        }
+
+        addRowBtn.addEventListener('click', () => addRow());
+
+        // --- Jotform API Integration ---
+        JFCustomWidget.subscribe("ready", function(data) {
+            if (data.value) {
+                try {
+                    const parsed = JSON.parse(data.value);
+                    tableBody.innerHTML = '';
+                    const items = parsed.appliances || parsed; // Support legacy or new structure
+                    if (Array.isArray(items) && items.length > 0) {
+                        items.forEach(item => {
+                            addRow({
+                                appliance: item.appliance || item.item || '',
+                                qty: item.quantity || item.qty || 1,
+                                unitLoadInWatt: item.unitLoadInWatt || item.unitLoad || 0,
+                                runTimeInHours: item.runTimeInHours || item.runTime || 0
+                            });
+                        });
+                    } else {
+                        addRow();
+                    }
+                } catch(e) {
+                    addRow();
+                }
+            } else {
+                addRow(); // Default with one blank row
+            }
+        });
+
+        JFCustomWidget.subscribe("submit", function() {
+            const formSubmissionData = getTableData();
+            
+            const widgetData = {
+                valid: true,
+                value: JSON.stringify(formSubmissionData)
+            };
+
+            JFCustomWidget.sendSubmit(widgetData);
+        });
+    </script>
+</body>
+</html>
