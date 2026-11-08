@@ -138,7 +138,7 @@
         const grossTotalLoadSpan = document.getElementById('grossTotalLoad');
         const energyDemandSpan = document.getElementById('energyDemand');
 
-        // Function to re-index row numbers automatically
+        // Re-index row numbers automatically
         function updateRowNumbers() {
             const rows = tableBody.querySelectorAll('tr');
             rows.forEach((row, index) => {
@@ -161,9 +161,12 @@
                 <td><button type="button" class="delete-btn">X</button></td>
             `;
 
-            // Bind live calculation listeners to input fields
+            // Bind live calculation & auto-saving listeners to inputs
             row.querySelectorAll('input').forEach(input => {
-                input.addEventListener('input', calculateRowAndTotals);
+                input.addEventListener('input', () => {
+                    calculateRowAndTotals();
+                    saveToLocalStorage();
+                });
             });
 
             // Bind delete button listener
@@ -171,6 +174,7 @@
                 row.remove();
                 updateRowNumbers();
                 calculateRowAndTotals();
+                saveToLocalStorage();
             });
 
             tableBody.appendChild(row);
@@ -189,32 +193,26 @@
                 const unitLoad = parseFloat(row.querySelector('.unit-load-input').value) || 0;
                 const runTime = parseFloat(row.querySelector('.runtime-input').value) || 0;
 
-                // Formula 1: Total Load = Quantity * Unit Load
                 const totalLoad = qty * unitLoad;
-                
-                // Formula 2: Energy in Wh = Run time * Total Load per appliance
                 const energyWh = runTime * totalLoad;
 
-                // Update row cells
                 row.querySelector('.total-load-cell').textContent = totalLoad.toFixed(2);
                 row.querySelector('.energy-cell').textContent = energyWh.toFixed(2);
 
-                // Accumulate sums
                 grossTotalLoad += totalLoad;
                 totalEnergyDemand += energyWh;
             });
 
-            // Update footer summaries
             grossTotalLoadSpan.textContent = grossTotalLoad.toFixed(2);
             energyDemandSpan.textContent = totalEnergyDemand.toFixed(2);
 
-            // Automatically resize iframe height inside Jotform
-            if (typeof JFCustomWidget !== 'undefined') {
+            // Resize iframe inside Jotform if active
+            if (typeof JFCustomWidget !== 'undefined' && JFCustomWidget.setWidgetHeight) {
                 JFCustomWidget.setWidgetHeight(document.body.scrollHeight + 30);
             }
         }
 
-        // Extract structured table data to send back to Jotform
+        // Extract structured table data
         function getTableData() {
             const rows = tableBody.querySelectorAll('tr');
             const dataArray = [];
@@ -238,44 +236,93 @@
             };
         }
 
-        addRowBtn.addEventListener('click', () => addRow());
+        // Save data automatically to browser storage
+        function saveToLocalStorage() {
+            const data = getTableData();
+            localStorage.setItem('karim_renewables_saved_data', JSON.stringify(data));
+        }
 
-        // --- Jotform API Integration ---
-        JFCustomWidget.subscribe("ready", function(data) {
-            if (data.value) {
-                try {
-                    const parsed = JSON.parse(data.value);
-                    tableBody.innerHTML = '';
-                    const items = parsed.appliances || parsed; // Support legacy or new structure
-                    if (Array.isArray(items) && items.length > 0) {
-                        items.forEach(item => {
-                            addRow({
-                                appliance: item.appliance || item.item || '',
-                                qty: item.quantity || item.qty || 1,
-                                unitLoadInWatt: item.unitLoadInWatt || item.unitLoad || 0,
-                                runTimeInHours: item.runTimeInHours || item.runTime || 0
-                            });
+        // Load data from browser storage or Jotform submission history
+        function loadSavedData() {
+            let savedDataString = null;
+
+            // Check localStorage first for offline/standalone usage
+            const localData = localStorage.getItem('karim_renewables_saved_data');
+            if (localData) {
+                savedDataString = localData;
+            }
+
+            return savedDataString;
+        }
+
+        addRowBtn.addEventListener('click', () => {
+            addRow();
+            saveToLocalStorage();
+        });
+
+        // --- Jotform API & Initialization Integration ---
+        let isJotformInitialized = false;
+
+        function initializeTable(rawJsonData) {
+            try {
+                const parsed = JSON.parse(rawJsonData);
+                tableBody.innerHTML = '';
+                const items = parsed.appliances || parsed; 
+                if (Array.isArray(items) && items.length > 0) {
+                    items.forEach(item => {
+                        addRow({
+                            appliance: item.appliance || item.item || '',
+                            qty: item.quantity || item.qty || 1,
+                            unitLoad: item.unitLoadInWatt || item.unitLoad || 0,
+                            runTime: item.runTimeInHours || item.runTime || 0
                         });
+                    });
+                } else {
+                    addRow();
+                }
+            } catch(e) {
+                addRow();
+            }
+        }
+
+        // If inside Jotform, listen to Jotform ready event
+        if (typeof JFCustomWidget !== 'undefined') {
+            JFCustomWidget.subscribe("ready", function(data) {
+                isJotformInitialized = true;
+                if (data.value) {
+                    initializeTable(data.value);
+                } else {
+                    // Fallback to local storage if Jotform is blank, or start fresh
+                    const localFallback = loadSavedData();
+                    if (localFallback) {
+                        initializeTable(localFallback);
                     } else {
                         addRow();
                     }
-                } catch(e) {
-                    addRow();
                 }
-            } else {
-                addRow(); // Default with one blank row
-            }
-        });
+            });
 
-        JFCustomWidget.subscribe("submit", function() {
-            const formSubmissionData = getTableData();
-            
-            const widgetData = {
-                valid: true,
-                value: JSON.stringify(formSubmissionData)
-            };
+            JFCustomWidget.subscribe("submit", function() {
+                const formSubmissionData = getTableData();
+                JFCustomWidget.sendSubmit({
+                    valid: true,
+                    value: JSON.stringify(formSubmissionData)
+                });
+            });
+        }
 
-            JFCustomWidget.sendSubmit(widgetData);
+        // If running standalone (outside Jotform, like github.io link or offline file)
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                if (!isJotformInitialized) {
+                    const localData = loadSavedData();
+                    if (localData) {
+                        initializeTable(localData);
+                    } else {
+                        addRow(); // Default blank row
+                    }
+                }
+            }, 200); // Small timeout to wait for Jotform API check
         });
     </script>
 </body>
